@@ -4,7 +4,11 @@ const userSchema = new mongoose.Schema({
     passwordHash: { type: String, required: true },
     roles: { type: [String], default: ["player"]},
     regreshToken: { type: String },
-    createdAt: {type: Date, default: Date.now }
+    createdAt: {type: Date, default: Date.now },
+
+    // Password reset fields
+    resetPasswordToken: {type: String},
+    resetPasswordToken: { type: Date},
 });
 
 module.exports = mongoose.model("User", userSchema);

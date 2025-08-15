@@ -70,4 +70,56 @@ router.post("/refresh-token", async (req, res) => {
 }
 });
 
+router.post("/request-password-reset", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ msg: "Email is required"});
+
+    try {
+        const user = await User.findOne({ email});
+        if (!user) return res.status(404).json({ msg: "User not found"});
+
+        //generate token
+        const token = crypto.randomBytes(32).toString("hex");
+        user.resetPasswordToken = token;
+        user.resetPasswordExpires = Date.now() + 3600000; //1 hour
+        await user.save();
+
+        //send email?
+        console.log(`Reset token for ${email}; ${token}`);
+
+        res.json({ msg:"Password reset token generated. Check your email."});
+    } catch (err){
+        res.status(500).json({ error: err.message});
+    }
+});
+
+//do the password reset
+
+router.post("/reset-password", async (req, res) => {
+    const { token, newPassword} = req.body;
+    if (!token || !newPassword) return res.status(400).json({msg: "token and new password required"});
+
+    try {
+        const user = await User.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now()},
+        });
+
+        if (!user) return res.status(400).json({msg: "invalid or expired token"});
+
+        const bcrypt = require("bcrypt");
+        user.passwordHash = await bcrypt.hash(newPassword, 10);
+
+        // clear the reset token
+
+        user.resetPasswordToken = undifined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+
+        res.json({ msg: "password has been reset successfully"});
+    } catch (err) {
+        res.status(500).json({ error: err.message});
+    }
+});
+
 module.exports= router;
