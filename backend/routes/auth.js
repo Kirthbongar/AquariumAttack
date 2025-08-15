@@ -79,13 +79,23 @@ router.post("/request-password-reset", async (req, res) => {
         if (!user) return res.status(404).json({ msg: "User not found"});
 
         //generate token
+        const crypto = require("crypto");
         const token = crypto.randomBytes(32).toString("hex");
         user.resetPasswordToken = token;
         user.resetPasswordExpires = Date.now() + 3600000; //1 hour
         await user.save();
 
         //send email?
-        console.log(`Reset token for ${email}; ${token}`);
+       const resetURL = `http://localhost:3000/resetpassword?token=${token}`; //front end URL
+       await sendEmail({
+        to: user.email,
+        subject: "Password Reset Request",
+        Text: `You requested a password reset. Visit the link to reset: ${resetURL}`,
+        html:`<p>You requested a password reset.</p><p>Click <a href="${resetURL}">here</a> to reset your password</p>`,
+
+       });
+
+
 
         res.json({ msg:"Password reset token generated. Check your email."});
     } catch (err){
