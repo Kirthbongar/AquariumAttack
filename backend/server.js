@@ -7,14 +7,28 @@ dotenv.config();
 
 const app = express();
 
+//Cors Setup
+app.use(cors({
+    origin: "http://localhost:5173",
+    credentials: true, // allow cookies / authorization headers
+}));
+
 //Middleware
 const authMiddleware = require("./middleware/auth");
-app.use(cors());
 app.use(express.json()); //parse JSON bodies
+
 
 //auth routes
 const authRoutes = require("./routes/auth");
 app.use("/auth", authRoutes);
+
+
+// Protected route (requires login)
+app.get("/protected", authMiddleware, (req, res) => {
+     res.json({ msg: `Hello ${req.user.id}, you are authenticated!` });
+});
+
+
 
 //progress routes
 const progressRoutes = require("./routes/progress");
@@ -24,6 +38,7 @@ app.use("/progress", progressRoutes);
 app.get("/health", (req, res) => {
     res.json({ status: "Backend is running!"});
 });
+
 
 //Connect to MongoDB
 mongoose
@@ -40,3 +55,5 @@ mongoose
     .catch((err) => {
         console.error("MongoDB connection Failed:",err.message);
     });
+
+
