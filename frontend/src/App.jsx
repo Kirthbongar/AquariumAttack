@@ -1,10 +1,10 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Register from "./pages/Register";
-import Login from "./pages/login";
+import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import "./App.css"; // keep your styles
-import Game from "./pages/Game";
-
+import Game from "./pages/Game"; // New game page
+import ResetPassword from "./pages/ResetPassword";
+import "./App.css";
 
 function App() {
   return (
@@ -14,11 +14,13 @@ function App() {
           {/* Default route is Login */}
           <Route path="/" element={<Login />} />
           {/* Register page */}
-          <Route path="Register" element={<Register />} />
+          <Route path="/register" element={<Register />} />
           {/* Dashboard page */}
-          <Route path="/Dashboard" element={<Dashboard />} />
-          {/* Game Page */}
-          <Route path="/Game" element={<Game />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          {/* Game page */}
+          <Route path="/game" element={<Game />} />
+          {/* Password reset page */}
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Routes>
       </div>
     </Router>
@@ -26,4 +28,3 @@ function App() {
 }
 
 export default App;
-

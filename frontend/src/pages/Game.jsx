@@ -1,186 +1,200 @@
 import { useRef, useState, useEffect } from "react";
-import MainMenu from "./MainMenu";
-import InstructionsMenu from "./InstructionsMenu";
-import Shop from "./Shop";
-import HUD from "./HUD";
-import Fish from "./Fish";
-import Food from "./Food";
-import Coin from "./Coin";
-import { trySpawnCoin } from "./FishCoinLogic";
+import { useNavigate, Link } from "react-router-dom";
+import API, { setAuthToken } from "../api/api";
+import { useGameState } from "../hooks/useGameState";
+import { useGameLoop } from "../hooks/useGameLoop";
+import { useInputHandlers } from "../hooks/useInputHandlers";
+import { HUD } from "../components/HUD";
+import { MainMenu } from "../components/MainMenu";
 
 export default function Game() {
   const canvasRef = useRef(null);
-  const [gameState, setGameState] = useState("menu");
+  const [gameScreen, setGameScreen] = useState("menu");
+  const [user, setUser] = useState(null);
+  const navigate = useNavigate();
+  
+  // Game state management
+  const gameStateHook = useGameState();
+  const {
+    uiState,
+    getGameState,
+    getFish,
+    getFood,
+    getCoins,
+    modifyCoins,
+    addFood,
+    addCoin,
+    removeCoin,
+    removeFood,
+    updateTime,
+    togglePause,
+    resetGame,
+    updateUIState
+  } = gameStateHook;
 
-  const [coins, setCoins] = useState(50);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [maxFood, setMaxFood] = useState(3);
-  const [foodValue, setFoodValue] = useState(1);
-
-  // Refs for mutable game state
-  const fishListRef = useRef([
-    { id: 1, x: 100, y: 300, size: 20, eaten: 0, stage: 1, coinTimer: 0, nextCoinTime: 4 + Math.random() * 3 },
-    { id: 2, x: 300, y: 400, size: 20, eaten: 0, stage: 1, coinTimer: 0, nextCoinTime: 4 + Math.random() * 3 },
-  ]);
-  const foodListRef = useRef([]);
-  const coinListRef = useRef([]);
-
-  // React state for rendering
-  const [fishList, setFishList] = useState(fishListRef.current);
-  const [foodList, setFoodList] = useState(foodListRef.current);
-  const [coinList, setCoinList] = useState(coinListRef.current);
-
+  // Authentication check
   useEffect(() => {
-    if (gameState !== "playing") return;
+    const token = localStorage.getItem("accessToken");
+    const userData = localStorage.getItem("user");
+    
+    if (!token) {
+      navigate("/");
+      return;
+    }
+    
+    setAuthToken(token);
+    if (userData) {
+      setUser(JSON.parse(userData));
+    }
+  }, [navigate]);
+
+  // Auto-save game progress
+  useEffect(() => {
+    if (gameScreen === "playing" && user) {
+      const saveInterval = setInterval(async () => {
+        try {
+          const state = getGameState();
+          await API.post("/game/progress", {
+            currentGameState: {
+              coins: state.coins,
+              elapsedTime: state.elapsedTime,
+              maxFood: state.maxFood,
+              foodValue: state.foodValue,
+              fishCount: state.fish.length
+            },
+            totalPlayTime: state.elapsedTime,
+            lastPlayed: new Date()
+          });
+        } catch (error) {
+          console.error("Auto-save failed:", error);
+        }
+      }, 30000); // Save every 30 seconds
+
+      return () => clearInterval(saveInterval);
+    }
+  }, [gameScreen, user, getGameState]);
+
+  // Save on game end
+  const handleGameEnd = async (finalScore) => {
+    if (!user) return;
+
+    try {
+      const state = getGameState();
+      await API.post("/game/progress", {
+        highScore: finalScore,
+        totalCoinsEarned: state.coins,
+        totalPlayTime: state.elapsedTime,
+        gamesPlayed: 1, // This would be incremented on backend
+        currentGameState: {
+          coins: state.coins,
+          elapsedTime: state.elapsedTime,
+          maxFood: state.maxFood,
+          foodValue: state.foodValue,
+          fishCount: state.fish.length
+        }
+      });
+    } catch (error) {
+      console.error("Failed to save game progress:", error);
+    }
+  };
+
+  // Canvas resize handling
+  useEffect(() => {
+    if (gameScreen !== "playing") return;
 
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
+    if (!canvas) return;
 
     const resizeCanvas = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     };
+    
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
-    let lastTime = performance.now();
-
-    const update = (time) => {
-      const deltaTime = (time - lastTime) / 1000;
-      lastTime = time;
-
-      setElapsedTime(prev => prev + deltaTime);
-
-      // --- Update Fish ---
-      fishListRef.current = fishListRef.current.map(fish => {
-        const newFish = { ...fish };
-
-        // Find nearest food
-        const targetFood = foodListRef.current.length
-          ? foodListRef.current.reduce((closest, food) => {
-              const d1 = Math.hypot(fish.x - closest.x, fish.y - closest.y);
-              const d2 = Math.hypot(fish.x - food.x, fish.y - food.y);
-              return d2 < d1 ? food : closest;
-            }, foodListRef.current[0])
-          : null;
-
-        if (targetFood) {
-          const dx = targetFood.x - newFish.x;
-          const dy = targetFood.y - newFish.y;
-          const dist = Math.hypot(dx, dy);
-          const speed = 50;
-
-          if (dist < 5) {
-            // Eat food
-            foodListRef.current = foodListRef.current.filter(f => f.id !== targetFood.id);
-            newFish.eaten += 1;
-
-            // Grow fish
-            if (newFish.eaten % 3 === 0 && newFish.stage < 3) {
-              newFish.stage += 1;
-              newFish.size += 10;
-            }
-          } else {
-            newFish.x += (dx / dist) * speed * deltaTime;
-            newFish.y += (dy / dist) * speed * deltaTime;
-          }
-        }
-
-        // Coin spawn logic
-        const coin = trySpawnCoin(newFish, foodValue, deltaTime);
-        if (coin) coinListRef.current.push(coin);
-
-        return newFish;
-      });
-
-      // --- Update Food ---
-      foodListRef.current = foodListRef.current
-        .map(f => {
-          const elapsed = (performance.now() - f.spawnTime) / 1000;
-          const progress = Math.min(elapsed / f.fallDuration, 1);
-          return { ...f, y: f.startY + (f.targetY - f.startY) * progress };
-        })
-        .filter(f => f.y < canvas.height - 10);
-
-      // --- Update Coins ---
-      coinListRef.current = coinListRef.current
-        .map(c => ({ ...c, y: c.y + 80 * deltaTime }))
-        .filter(c => c.y < canvas.height - 20);
-
-      // Sync refs to React state once per frame
-      setFishList([...fishListRef.current]);
-      setFoodList([...foodListRef.current]);
-      setCoinList([...coinListRef.current]);
-
-      // --- Draw ---
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#d3d3d3";
-      ctx.fillRect(0, 0, canvas.width, 50);
-      fishListRef.current.forEach(fish => Fish.draw(ctx, fish));
-      foodListRef.current.forEach(food => Food.draw(ctx, food));
-      coinListRef.current.forEach(coin => Coin.draw(ctx, coin));
-
-      requestAnimationFrame(update);
-    };
-
-    requestAnimationFrame(update);
-
     return () => window.removeEventListener("resize", resizeCanvas);
-  }, [gameState, foodValue]);
+  }, [gameScreen]);
 
-  const handleClick = (e) => {
-    if (gameState !== "playing") return;
+  // Game loop
+  useGameLoop({
+    canvasRef,
+    gameState: gameScreen,
+    getFish,
+    getFood,
+    getCoins,
+    getGameState,
+    updateTime,
+    removeFood,
+    removeCoin,
+    addCoin,
+    updateUIState
+  });
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  // Input handling
+  const { handleClick } = useInputHandlers({
+    canvasRef,
+    gameScreen,
+    getGameState,
+    getCoins,
+    addFood,
+    modifyCoins,
+    removeCoin,
+    togglePause,
+    resetGame
+  });
 
-    if (y < 50) {
-      Shop.handleClick(x, coins, setCoins, fishList, setFishList, maxFood, setMaxFood, foodValue, setFoodValue);
-      return;
-    }
-
-    // Add food
-    if (coins >= 5 && foodListRef.current.length < maxFood) {
-      setCoins(prev => prev - 5);
-      const canvas = canvasRef.current;
-      const aquariumBottom = canvas.height;
-
-      const newFood = {
-        id: Date.now(),
-        x,
-        y,
-        startY: y,
-        targetY: aquariumBottom - 20,
-        fallDuration: 6,
-        spawnTime: performance.now(),
-      };
-
-      foodListRef.current.push(newFood);
-      setFoodList([...foodListRef.current]);
-    }
-
-    // Collect coin
-    const clickedCoinIndex = coinList.findIndex(c => Math.hypot(c.x - x, c.y - y) < 10);
-    if (clickedCoinIndex !== -1) {
-      const coin = coinList[clickedCoinIndex];
-      setCoins(prev => prev + coin.value);
-      coinListRef.current = coinListRef.current.filter((_, i) => i !== clickedCoinIndex);
-      setCoinList([...coinListRef.current]);
-    }
+  const handleBackToDashboard = () => {
+    const finalScore = getGameState().coins;
+    handleGameEnd(finalScore);
+    navigate("/dashboard");
   };
 
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-xl">Loading...</div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      {gameState === "menu" && <MainMenu setGameState={setGameState} />}
-      {gameState === "instructions" && <InstructionsMenu setGameState={setGameState} />}
-      {gameState === "playing" && (
+    <div className="w-full h-screen bg-blue-500">
+      {gameScreen === "menu" && (
+        <div className="relative h-full">
+          <MainMenu onStartGame={() => setGameScreen("playing")} />
+          
+          {/* Back to Dashboard Button */}
+          <div className="absolute top-4 left-4">
+            <button
+              onClick={handleBackToDashboard}
+              className="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors flex items-center gap-2"
+            >
+              ← Dashboard
+            </button>
+          </div>
+          
+          {/* User Info */}
+          <div className="absolute top-4 right-4 text-white">
+            <p>Welcome, {user.email.split('@')[0]}!</p>
+          </div>
+        </div>
+      )}
+      
+      {gameScreen === "playing" && (
         <>
-          <HUD coins={coins} elapsedTime={elapsedTime} />
+          <HUD 
+            uiState={uiState} 
+            isPaused={getGameState().paused}
+            user={user}
+            onBackToDashboard={handleBackToDashboard}
+          />
+          
           <canvas
             ref={canvasRef}
             onClick={handleClick}
-            style={{ display: "block", backgroundColor: "#00aaff" }}
+            className="block cursor-crosshair"
+            style={{ backgroundColor: "#00aaff" }}
           />
         </>
       )}
