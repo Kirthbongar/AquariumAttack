@@ -27,11 +27,20 @@ export default function Dashboard() {
         navigate("/");
     };
 
+    const handlePlayGame = () => {
+        navigate("/Game"); // Navigate to your Game component route
+    };
+
     return (
         <div>
             <h2>Dashboard</h2>
             <p>{message}</p>
             <button onClick={handleLogout}>Logout</button>
+            <button onClick={handlePlayGame} style={{ marginLeft:"10px"}}>Play Game!</button>
         </div>
     );
+
+
+
+
 }
